@@ -21,6 +21,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -37,9 +39,11 @@ def generate_launch_description():
         executable='physical_ai_server',
         name='physical_ai_server',
         output='screen',
-        parameters=config_files
+        parameters=[*config_files, {'action_profile': LaunchConfiguration('action_profile')}]
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument('action_profile', default_value='joint',
+                              choices=['joint', 'task_delta_6d']),
         physical_ai_server
     ])

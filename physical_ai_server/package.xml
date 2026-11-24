@@ -18,6 +18,7 @@
   <depend>cv_bridge</depend>
   <depend>trajectory_msgs</depend>
   <depend>rosbag_recorder</depend>
+  <exec_depend>python3-pykdl</exec_depend>
   <exec_depend>web_video_server</exec_depend>
   <exec_depend>rosbridge_suite</exec_depend>
   <exec_depend>image_transport_plugins</exec_depend>

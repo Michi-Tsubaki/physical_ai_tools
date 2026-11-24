@@ -17,6 +17,7 @@
 # Author: Seongwoo Kim
 
 from contextlib import nullcontext
+import json
 from pprint import pformat
 import time
 from typing import Any
@@ -46,6 +47,10 @@ from lerobot.utils.utils import (
     has_method,
 )
 from lerobot.utils.wandb_utils import WandBLogger
+from physical_ai_server.data_processing.task_space import (
+    PROFILE, checkpoint_profile, is_task_dataset, profile_metadata,
+)
+from physical_ai_server.training.task_space import prepare_task_dataset, relative_training_actions
 from physical_ai_server.training.trainers.trainer import Trainer
 from rclpy.logging import get_logger
 from termcolor import colored
@@ -192,7 +197,17 @@ class LerobotTrainer(Trainer):
     def _create_dataset(self, cfg):
         """Create training dataset."""
         self.logger.info('Creating dataset')
-        return make_dataset(cfg)
+        dataset = make_dataset(cfg)
+        self.task_space = is_task_dataset(dataset.features, dataset.meta.info.get('action_profile'))
+        if cfg.resume:
+            profile = checkpoint_profile(cfg.policy.pretrained_path)
+            if self.task_space != (profile == PROFILE):
+                raise ValueError('Checkpoint and training dataset action profiles differ')
+        if self.task_space:
+            if cfg.env is not None and cfg.eval_freq > 0:
+                raise ValueError('Use recorded task space episodes for evaluation')
+            prepare_task_dataset(dataset, cfg.policy)
+        return dataset
 
     def _create_evaluation_environment(self, cfg):
         """Create evaluation environment if needed."""
@@ -330,6 +345,9 @@ class LerobotTrainer(Trainer):
             batch = next(dl_iter)
             train_tracker.dataloading_s = time.perf_counter() - start_time
 
+            if self.task_space:
+                batch['action'] = relative_training_actions(batch)
+
             for key in batch:
                 if isinstance(batch[key], torch.Tensor):
                     batch[key] = batch[key].to(device, non_blocking=True)
@@ -364,6 +382,9 @@ class LerobotTrainer(Trainer):
                 self.logger.info(f'Saving checkpoint at step {step}')
                 checkpoint_dir = get_step_checkpoint_dir(cfg.output_dir, cfg.steps, step)
                 save_checkpoint(checkpoint_dir, step, cfg, policy, optimizer, lr_scheduler)
+                if self.task_space:
+                    path = checkpoint_dir / 'pretrained_model' / 'action_profile.json'
+                    path.write_text(json.dumps(profile_metadata(), indent=2) + '\n')
                 update_last_checkpoint(checkpoint_dir)
                 if wandb_logger:
                     wandb_logger.log_policy(checkpoint_dir)

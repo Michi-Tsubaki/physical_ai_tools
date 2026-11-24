@@ -50,6 +50,7 @@ from physical_ai_interfaces.srv import (
 from physical_ai_server.communication.communicator import Communicator
 from physical_ai_server.data_processing.data_manager import DataManager
 from physical_ai_server.data_processing.hf_api_worker import HfApiWorker
+from physical_ai_server.data_processing.task_space import FEATURE_NAMES, PROFILE
 from physical_ai_server.inference.inference_manager import InferenceManager
 from physical_ai_server.timer.timer_manager import TimerManager
 from physical_ai_server.training.training_manager import TrainingManager
@@ -61,6 +62,8 @@ from physical_ai_server.utils.parameter_utils import (
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from std_msgs.msg import String
 
 
 class PhysicalAIServer(Node):
@@ -79,6 +82,13 @@ class PhysicalAIServer(Node):
     def __init__(self):
         super().__init__('physical_ai_server')
         self.get_logger().info('Start Physical AI Server')
+
+        self.record_profile = self.declare_parameter('action_profile', 'joint').value
+        if self.record_profile not in ('joint', PROFILE):
+            raise ValueError(f'Unknown action profile {self.record_profile}')
+        self.description_subscription = None
+        self.robot_description = None
+        self.kinematics = None
 
         self.params = None
         self.total_joint_order = None
@@ -228,9 +238,27 @@ class PhysicalAIServer(Node):
             )
             self.heartbeat_timer.start(timer_name='heartbeat')
 
+        if robot_type == 'nextage':
+            self.description_subscription = self.create_subscription(
+                String, '/robot_description', self._receive_description,
+                QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+
         self.inference_manager = InferenceManager()
         self.get_logger().info(
             f'ROS parameters initialized successfully for robot type: {robot_type}')
+
+    def _receive_description(self, msg):
+        self.robot_description = msg.data
+
+    def _configure_action_profile(self, profile):
+        self.kinematics = None
+        if profile == PROFILE:
+            if self.robot_type != 'nextage':
+                raise ValueError('The task space profile requires NEXTAGE')
+            if not self.robot_description:
+                raise ValueError('Waiting for NEXTAGE /robot_description')
+            from physical_ai_server.data_processing.nextage_kinematics import NextageKinematics
+            self.kinematics = NextageKinematics(self.robot_description, self.total_joint_order)
 
     def get_training_status(self):
         msg = TrainingStatus()
@@ -262,7 +290,8 @@ class PhysicalAIServer(Node):
         self.data_manager = DataManager(
             save_root_path=self.DEFAULT_SAVE_ROOT_PATH,
             robot_type=self.robot_type,
-            task_info=task_info
+            task_info=task_info,
+            action_profile=PROFILE if self.kinematics else 'joint'
         )
         self.communicator.clear_latest_data()
 
@@ -277,6 +306,11 @@ class PhysicalAIServer(Node):
             'Robot control parameters initialized successfully')
 
     def clear_parameters(self):
+        if self.description_subscription is not None:
+            self.destroy_subscription(self.description_subscription)
+            self.description_subscription = None
+        self.robot_description = None
+        self.kinematics = None
         if self.communicator is not None:
             self.communicator.cleanup()
             self.communicator = None
@@ -464,6 +498,9 @@ class PhysicalAIServer(Node):
                 self.total_joint_order,
                 leader_msgs,
                 self.joint_order)
+            if self.kinematics:
+                follower_data = self.kinematics.encode(follower_data)
+                leader_data = self.kinematics.encode(leader_data)
 
         except Exception as e:
             error_msg = f'Failed to convert messages: {str(e)}, please check the robot type again!'
@@ -476,7 +513,7 @@ class PhysicalAIServer(Node):
 
         if not self.data_manager.check_lerobot_dataset(
                 camera_data,
-                self.total_joint_order):
+                FEATURE_NAMES if self.kinematics else self.total_joint_order):
             error_msg = 'Invalid repository name, Please change the repository name'
             self.get_logger().info(error_msg)
 
@@ -558,12 +595,17 @@ class PhysicalAIServer(Node):
 
             action = self.inference_manager.predict(
                 images=camera_data,
-                state=follower_data,
+                state=self.kinematics.encode(follower_data) if self.kinematics else follower_data,
                 task_instruction=self.task_instruction[0]
             )
 
             self.get_logger().info(
                 f'Action data: {action}')
+
+            if self.kinematics:
+                action = self.kinematics.decode(action, follower_data)
+            elif len(action) != len(self.total_joint_order):
+                raise ValueError('Policy action dimension does not match the robot joint order')
 
             action_pub_msgs = self.data_manager.data_converter.tensor_array2joint_msgs(
                 action,
@@ -773,6 +815,7 @@ class PhysicalAIServer(Node):
 
                 self.get_logger().info('Start recording')
                 self.operation_mode = 'collection'
+                self._configure_action_profile(self.record_profile)
                 task_info = request.task_info
                 self.init_robot_control_parameters_from_user_task(
                     task_info
@@ -798,6 +841,7 @@ class PhysicalAIServer(Node):
                     self.get_logger().error(response.message)
                     return response
 
+                self._configure_action_profile(self.inference_manager.action_profile)
                 self.init_robot_control_parameters_from_user_task(
                     task_info
                 )

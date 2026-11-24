@@ -24,6 +24,7 @@ from lerobot.configs.default import DatasetConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 import numpy as np
 from physical_ai_server.evaluation.visualization_manager import VisualizationManager
+from physical_ai_server.data_processing.task_space import PROFILE, is_task_dataset
 from physical_ai_server.inference.inference_manager import InferenceManager
 
 
@@ -123,6 +124,11 @@ class EvaluationManager:
         save_plot_path: str = None
     ) -> float:
         episode_start, _, episode_length = self.get_episode_boundaries(dataset, episode_idx)
+
+        task_space = is_task_dataset(dataset.features, dataset.meta.info.get('action_profile'))
+        if (inference_manager.action_profile == PROFILE) != task_space:
+            raise ValueError('Dataset and checkpoint action profiles differ')
+        inference_manager.reset()
 
         # Storage for trajectory data
         state_across_time = []

@@ -20,6 +20,9 @@ import os
 
 from lerobot.policies.pretrained import PreTrainedPolicy
 import numpy as np
+from physical_ai_server.data_processing.task_space import (
+    FEATURE_NAMES, HORIZON, PROFILE, checkpoint_profile, transform_actions,
+)
 from physical_ai_server.utils.file_utils import read_json_file
 import torch
 
@@ -28,12 +31,15 @@ class InferenceManager:
 
     def __init__(
             self,
-            device: str = 'cuda'):
+            device: str | None = None):
 
-        self.device = device
+        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         self.policy_type = None
         self.policy_path = None
         self.policy = None
+        self.action_profile = 'joint'
+        self.chunk_step = 0
+        self.anchor = None
 
     def validate_policy(self, policy_path: str) -> bool:
         result_message = ''
@@ -58,6 +64,14 @@ class InferenceManager:
             result_message = f'Policy type {policy_type} is not supported.'
             return False, result_message
 
+        try:
+            profile = checkpoint_profile(policy_path)
+        except (OSError, ValueError) as exc:
+            return False, str(exc)
+        if profile == PROFILE and config.get('n_action_steps') != HORIZON:
+            return False, 'Checkpoint action horizon differs from the task space profile'
+        self.clear_policy()
+        self.action_profile = profile
         self.policy_path = policy_path
         self.policy_type = policy_type
         return True, f'Policy {policy_type} is valid.'
@@ -65,11 +79,18 @@ class InferenceManager:
     def load_policy(self):
         try:
             policy_cls = self._get_policy_class(self.policy_type)
-            self.policy = policy_cls.from_pretrained(self.policy_path)
+            self.policy = policy_cls.from_pretrained(self.policy_path).to(self.device)
+            self.reset()
             return True
         except Exception as e:
             print(f'Failed to load policy from {self.policy_path}: {e}')
             return False
+
+    def reset(self):
+        self.chunk_step = 0
+        self.anchor = None
+        if self.policy is not None:
+            self.policy.reset()
 
     def clear_policy(self):
         if hasattr(self, 'policy'):
@@ -87,11 +108,18 @@ class InferenceManager:
             state: list[float],
             task_instruction: str = None) -> list:
 
+        if self.action_profile == PROFILE and self.chunk_step == 0:
+            self.anchor = np.asarray(state).copy()
+            if self.anchor.shape != (len(FEATURE_NAMES),):
+                raise ValueError('Expected task space observation for checkpoint')
         observation = self._preprocess(images, state, task_instruction)
         with torch.inference_mode():
             action = self.policy.select_action(observation)
             action = action.squeeze(0).to('cpu').numpy()
 
+        if self.action_profile == PROFILE:
+            action = transform_actions(self.anchor, action, to_absolute=True)
+            self.chunk_step = (self.chunk_step + 1) % HORIZON
         return action
 
     def _preprocess(

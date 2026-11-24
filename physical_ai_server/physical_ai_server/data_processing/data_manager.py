@@ -38,7 +38,7 @@ from huggingface_hub import (
     upload_large_folder
 )
 from huggingface_hub.errors import LocalTokenNotFoundError
-from lerobot.datasets.utils import DEFAULT_FEATURES
+from lerobot.datasets.utils import DEFAULT_FEATURES, write_info
 from nav_msgs.msg import Odometry
 import numpy as np
 from physical_ai_interfaces.msg import TaskStatus
@@ -47,6 +47,7 @@ from physical_ai_server.data_processing.lerobot_dataset_wrapper import LeRobotDa
 from physical_ai_server.data_processing.progress_tracker import (
     HuggingFaceProgressTqdm
 )
+from physical_ai_server.data_processing.task_space import PROFILE, is_task_dataset, profile_metadata
 from physical_ai_server.device_manager.cpu_checker import CPUChecker
 from physical_ai_server.device_manager.ram_checker import RAMChecker
 from physical_ai_server.device_manager.storage_checker import StorageChecker
@@ -68,9 +69,13 @@ class DataManager:
             self,
             save_root_path,
             robot_type,
-            task_info):
+            task_info,
+            action_profile='joint'):
+        self.action_profile = action_profile
         self._robot_type = robot_type
         self._save_repo_name = f'{task_info.user_id}/{robot_type}_{task_info.task_name}'
+        if action_profile == PROFILE:
+            self._save_repo_name += f'_{PROFILE}'
         self._save_path = save_root_path / self._save_repo_name
         self._save_rosbag_path = '/workspace/rosbag2/' + self._save_repo_name
         self._on_saving = False
@@ -458,10 +463,14 @@ class DataManager:
                 if self._check_dataset_exists(
                         self._save_repo_name,
                         self._save_path):
-                    self._lerobot_dataset = LeRobotDatasetWrapper(
+                    dataset = LeRobotDatasetWrapper(
                         self._save_repo_name,
                         self._save_path
                     )
+                    metadata = dataset.meta.info.get('action_profile')
+                    if is_task_dataset(dataset.features, metadata) != (self.action_profile == PROFILE):
+                        raise ValueError('Existing dataset has a different action profile')
+                    self._lerobot_dataset = dataset
                 else:
                     self._lerobot_dataset = self._create_dataset(
                         self._save_repo_name,
@@ -504,12 +513,13 @@ class DataManager:
             'names': joint_list,
             'shape': (len(joint_list),)
         }
-        return LeRobotDatasetWrapper.create(
-                repo_id=repo_id,
-                fps=self._task_info.fps,
-                features=features,
-                use_videos=True
-            )
+        dataset = LeRobotDatasetWrapper.create(
+            repo_id=repo_id, fps=self._task_info.fps, features=features, use_videos=True
+        )
+        if self.action_profile == PROFILE:
+            dataset.meta.info['action_profile'] = profile_metadata()
+            write_info(dataset.meta.info, dataset.root)
+        return dataset
 
     def _upload_dataset(self, tags, private=False):
         try:
