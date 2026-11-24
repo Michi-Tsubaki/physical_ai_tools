@@ -1,0 +1,54 @@
+# Standard electric grippers: opening is normalized 0=closed, 1=open. Arms: radians.
+# Run physical_ai_baxter ROS 2 VLA IO; see README Baxter section.
+physical_ai_server:
+  ros__parameters:
+    baxter:
+      observation_list:
+      - cam_wrist_left
+      - cam_wrist_right
+      - state
+      camera_topic_list:
+      - cam_wrist_left:/baxter/vla/left/image/compressed
+      - cam_wrist_right:/baxter/vla/right/image/compressed
+      joint_topic_list:
+      - follower_baxter:/baxter/vla/joint_states
+      - leader_baxter:/baxter/vla/command
+      joint_list:
+      - leader_baxter
+      joint_order:
+        leader_baxter:
+        - left_s0
+        - left_s1
+        - left_e0
+        - left_e1
+        - left_w0
+        - left_w1
+        - left_w2
+        - right_s0
+        - right_s1
+        - right_e0
+        - right_e1
+        - right_w0
+        - right_w1
+        - right_w2
+        - left_gripper_opening
+        - right_gripper_opening
+      rosbag_extra_topic_list:
+      - /tf
+      - /tf_static
+      - /robot/joint_states
+      - /baxter/robot_enabled
+      - /baxter/left/endpoint_pose
+      - /baxter/right/endpoint_pose
+      - /baxter/left/endpoint_twist
+      - /baxter/right/endpoint_twist
+      - /baxter/left/endpoint_wrench
+      - /baxter/right/endpoint_wrench
+      - /baxter/left/gripper_state
+      - /baxter/right/gripper_state
+      - /baxter/left/gripper_status
+      - /baxter/right/gripper_status
+      - /cameras/left_hand_camera/camera_info
+      - /cameras/right_hand_camera/camera_info
+      - /baxter/airoa/proposed_command
+      - /baxter/vla/status
