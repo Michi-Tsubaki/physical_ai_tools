@@ -78,8 +78,12 @@ class InferenceManager:
 
     def load_policy(self):
         try:
-            policy_cls = self._get_policy_class(self.policy_type)
-            self.policy = policy_cls.from_pretrained(self.policy_path).to(self.device)
+            if self.policy_type == 'pi05':
+                from physical_ai_server.pi05.client import Pi05Inference
+                self.policy = Pi05Inference(self.policy_path, self.device)
+            else:
+                policy_cls = self._get_policy_class(self.policy_type)
+                self.policy = policy_cls.from_pretrained(self.policy_path).to(self.device)
             self.reset()
             return True
         except Exception as e:
@@ -94,6 +98,8 @@ class InferenceManager:
 
     def clear_policy(self):
         if hasattr(self, 'policy'):
+            if self.policy_type == 'pi05' and self.policy is not None:
+                self.policy.close()
             del self.policy
             self.policy = None
         else:
@@ -112,7 +118,10 @@ class InferenceManager:
             self.anchor = np.asarray(state).copy()
             if self.anchor.shape != (len(FEATURE_NAMES),):
                 raise ValueError('Expected task space observation for checkpoint')
-        observation = self._preprocess(images, state, task_instruction)
+        if self.policy_type == 'pi05' and self.policy.actions:
+            observation = {}
+        else:
+            observation = self._preprocess(images, state, task_instruction)
         with torch.inference_mode():
             action = self.policy.select_action(observation)
             action = action.squeeze(0).to('cpu').numpy()
@@ -121,6 +130,10 @@ class InferenceManager:
             action = transform_actions(self.anchor, action, to_absolute=True)
             self.chunk_step = (self.chunk_step + 1) % HORIZON
         return action
+
+    @property
+    def _input_device(self):
+        return 'cpu' if self.policy_type == 'pi05' else self.device
 
     def _preprocess(
             self,
@@ -131,7 +144,7 @@ class InferenceManager:
         observation = self._convert_images2tensors(images)
         observation['observation.state'] = self._convert_np2tensors(state)
         for key in observation.keys():
-            observation[key] = observation[key].to(self.device)
+            observation[key] = observation[key].to(self._input_device)
 
         if task_instruction is not None:
             observation['task'] = [task_instruction]
@@ -147,7 +160,7 @@ class InferenceManager:
             image = torch.from_numpy(value)
             image = image.to(torch.float32) / 255
             image = image.permute(2, 0, 1)
-            image = image.to(self.device, non_blocking=True)
+            image = image.to(self._input_device, non_blocking=True)
             image = image.unsqueeze(0)
             processed_images['observation.images.' + key] = image
 
@@ -160,7 +173,7 @@ class InferenceManager:
             data = np.array(data)
         tensor_data = torch.from_numpy(data)
         tensor_data = tensor_data.to(torch.float32)
-        tensor_data = tensor_data.to(self.device, non_blocking=True)
+        tensor_data = tensor_data.to(self._input_device, non_blocking=True)
         tensor_data = tensor_data.unsqueeze(0)
 
         return tensor_data
@@ -208,6 +221,7 @@ class InferenceManager:
             'act',
             'vqbet',
             'pi0',
+            'pi05',
             'pi0fast',
             'smolvla',
         ]

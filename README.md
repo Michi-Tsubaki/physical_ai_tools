@@ -39,8 +39,21 @@ ros2 launch physical_ai_server physical_ai_server_bringup.launch.py action_profi
 | 学習 | 各窓の開始時の実測手首姿勢を基準に，各目標を `inverse(T_start) @ T_target` で表します．胸・頭は同じ時刻の実測値との差です．行動の正規化統計もエピソード内の有効な相対目標から求めます． |
 | 推論 | チャンク開始時の実測姿勢を30ステップ保持し，各予測を同じ基準から絶対目標へ復元します．各ステップで現在の関節角を初期値として両腕の逆運動学を解きます．6Dの退化や逆運動学の失敗があれば，その指令を配信する前に推論を終了します． |
 
-ACT，SmolVLA，π0，π0-FAST は予測長・実行長ともに30です．Diffusion は U-Net のダウンサンプリングと観測履歴に合わせて予測長を切り上げ，標準設定では32点を予測して30点を実行します．チェックポイントをコピーする際は，`pretrained_model/action_profile.json` を重みと一緒に保存してください．
+ACT，SmolVLA，π0，π0.5，π0-FAST は予測長・実行長ともに30です．Diffusion は U-Net のダウンサンプリングと観測履歴に合わせて予測長を切り上げ，標準設定では32点を予測して30点を実行します．チェックポイントをコピーする際は，`pretrained_model/action_profile.json` を重みと一緒に保存してください．
 
 既定の NEXTAGE 設定での推論出力先は `/fullbody_controller/follow_joint_trajectory_action/recording_trajectory` です．NEXTAGE 側では送信済み目標を観測するためのトピックです．
 
 チャンク開始時の観測を参照する方式と実行長30の根拠は [Demystifying Action Space Design for Robotic Manipulation Policies](https://arxiv.org/html/2602.23408v2) にあります．
+
+## π0.5 の学習と推論
+
+学習と推論を行うマシンで，Hugging Face 公式の π0.5 が含まれる LeRobot 0.5.1 を専用環境にインストールします．次のコマンドは CUDA または CPU に合う PyTorch を選びます．
+
+```bash
+uv venv --python 3.12 ~/.local/share/physical-ai-tools/pi05
+uv pip install --python ~/.local/share/physical-ai-tools/pi05/bin/python --torch-backend=auto 'lerobot[pi]==0.5.1'
+```
+
+学習画面で `pi05` と収録済みデータセットを選択します．初回は `lerobot/pi05_base` とトークナイザー `google/paligemma-3b-pt-224` を取得するため，後者にアクセスできる Hugging Face アカウントでログインしておきます．ローカルに用意した初期重みは `PHYSICAL_AI_PI05_BASE`，別の専用環境は `PHYSICAL_AI_PI05_PYTHON` で指定できます．
+
+関節データと `task_delta_6d` データの両方に対応します．v2.1 の統計に合わせて状態と行動には min–max 正規化を使います．推論画面では保存した `pretrained_model` ディレクトリを選択します．別マシンへ移す場合も，重みと一緒に前処理・後処理の設定と統計を含むディレクトリ全体をコピーします．

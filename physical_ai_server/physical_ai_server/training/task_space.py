@@ -13,7 +13,7 @@ def configure_task_policy(policy):
         required = HORIZON + policy.n_obs_steps - 1
         policy.horizon = ((required + factor - 1) // factor) * factor
         policy.drop_n_last_frames = policy.horizon - required
-    elif policy.type in ('act', 'smolvla', 'pi0', 'pi0fast'):
+    elif policy.type in ('act', 'smolvla', 'pi0', 'pi05', 'pi0fast'):
         policy.chunk_size = HORIZON
         if getattr(policy, 'temporal_ensemble_coeff', None) is not None:
             raise ValueError('Temporal ensembling requires actions in a common absolute frame')

@@ -24,6 +24,7 @@ import draccus
 import lerobot
 from lerobot.configs.train import TrainPipelineConfig
 from physical_ai_interfaces.msg import TrainingInfo, TrainingStatus
+from physical_ai_server.pi05.trainer import Pi05Trainer
 from physical_ai_server.training.trainers.lerobot.lerobot_trainer import LerobotTrainer
 # TODO: Uncomment when training metrics is implemented
 # from physical_ai_server.training.trainers.gr00tn1.gr00tn1_trainer import Gr00tN1Trainer
@@ -42,6 +43,7 @@ class TrainingManager:
 
     # Supported trainer mapping
     TRAINER_MAPPING = {
+        'pi05': Pi05Trainer,
         'pi0fast': LerobotTrainer,
         'pi0': LerobotTrainer,
         'diffusion': LerobotTrainer,
@@ -201,6 +203,7 @@ class TrainingManager:
             'act',
             'vqbet',
             'pi0',
+            'pi05',
             'pi0fast',
             'smolvla',
         ]

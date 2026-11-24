@@ -99,3 +99,43 @@ def test_delta_statistics_stop_at_episode_boundary():
     assert stats['count'].item() == 9
     np.testing.assert_allclose(stats['mean'][0], np.mean([1, 2, 3, 1, 2, 1, 1, 3, 1]))
     assert stats['max'][0] == 3
+
+
+def test_pi05_only_requests_images_at_chunk_boundaries(monkeypatch):
+    from physical_ai_server.pi05 import client
+    from physical_ai_server.pi05.trainer import Pi05DatasetConfig
+    from physical_ai_server.training.task_space import configure_task_policy
+
+    policy = Pi05DatasetConfig(device='cpu')
+    configure_task_policy(policy)
+    assert policy.chunk_size == policy.n_action_steps == HORIZON
+
+    identity = frame(0, np.eye(3))
+    delta = transform_actions(identity, identity)
+    anchors = []
+
+    class Runtime:
+        def call(self, operation, **data):
+            if operation == 'load':
+                return {'type': 'pi05', 'n_action_steps': HORIZON}
+            batch = data['batch']
+            assert batch['task'] == ['pick']
+            anchors.append(batch['observation.state'][0].copy())
+            return np.tile(delta, (HORIZON, 1))
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(client, 'Pi05Runtime', Runtime)
+    manager = InferenceManager(device='cpu')
+    manager.policy_type = 'pi05'
+    manager.action_profile = PROFILE
+    assert manager.load_policy()
+    for step in range(HORIZON + 1):
+        state = frame(step, np.eye(3))
+        np.testing.assert_allclose(manager.predict({}, state, 'pick'), anchors[-1])
+    np.testing.assert_array_equal(anchors, [identity, state])
+    manager.reset()
+    np.testing.assert_allclose(manager.predict({}, identity, 'pick'), identity)
+    assert len(anchors) == 3
+    manager.clear_policy()
