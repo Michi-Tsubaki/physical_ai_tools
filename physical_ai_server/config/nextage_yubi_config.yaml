@@ -1,0 +1,56 @@
+# NEXTAGE + detachable_tools YUBI. Run agentic_mp yubi_recording during collection.
+# Finger targets are measured motor positions, not commanded goals. Record at 20 Hz.
+physical_ai_server:
+  ros__parameters:
+    nextage_yubi:
+      observation_list:
+      - cam_wrist_right
+      - cam_wrist_left
+      - state
+      camera_topic_list:
+      - cam_wrist_right:/rhand_camera/image_raw/compressed
+      - cam_wrist_left:/lhand_camera/color/image_rect_raw/compressed
+      joint_topic_list:
+      - follower_nextage:/joint_states
+      - leader_nextage:/fullbody_controller/follow_joint_trajectory_action/recording_trajectory
+      - follower_left:/lhand/joint_states
+      - follower_right:/rhand/joint_states
+      - leader_left:/airoa/left/recording_trajectory
+      - leader_right:/airoa/right/recording_trajectory
+      joint_list:
+      - leader_nextage
+      - leader_left
+      - leader_right
+      joint_order:
+        leader_nextage:
+        - CHEST_JOINT0
+        - HEAD_JOINT0
+        - HEAD_JOINT1
+        - RARM_JOINT0
+        - RARM_JOINT1
+        - RARM_JOINT2
+        - RARM_JOINT3
+        - RARM_JOINT4
+        - RARM_JOINT5
+        - LARM_JOINT0
+        - LARM_JOINT1
+        - LARM_JOINT2
+        - LARM_JOINT3
+        - LARM_JOINT4
+        - LARM_JOINT5
+        leader_left:
+        - lhand_yubi_joint
+        leader_right:
+        - rhand_yubi_joint
+      rosbag_extra_topic_list:
+      - /tf
+      - /tf_static
+      - /robot_description
+      - /left_ft/robot_description
+      - /right_ft/robot_description
+      - /left_ft/force_torque
+      - /right_ft/force_torque
+      - /lhand/tool_state
+      - /rhand/tool_state
+      - /lhand/robot_description
+      - /rhand/robot_description
